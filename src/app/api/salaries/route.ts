@@ -5,12 +5,15 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search') ?? '';
+    const role = searchParams.get('role') ?? '';
     const company = searchParams.get('company') ?? '';
     const roleCategory = searchParams.get('roleCategory') ?? '';
     const city = searchParams.get('city') ?? '';
     const level = searchParams.get('level') ?? '';
     const minTC = Number(searchParams.get('minTC') ?? 0);
     const maxTC = Number(searchParams.get('maxTC') ?? 0);
+    const minYoe = Number(searchParams.get('minYoe') ?? 0);
+    const maxYoe = Number(searchParams.get('maxYoe') ?? 0);
     const sortBy = searchParams.get('sortBy') ?? 'totalCompensation';
     const sortDesc = searchParams.get('sortOrder') !== 'asc';
     const page = Math.max(1, Number(searchParams.get('page') ?? 1));
@@ -21,10 +24,13 @@ export async function GET(req: NextRequest) {
 
     // Use optional chaining pattern: if filter is empty, OR always-true condition
     const sSearch = `%${search || ''}%`;
+    const sRole = `%${role || ''}%`;
     const sCompany = `%${company || ''}%`;
     const sLevel = `%${level || ''}%`;
     const minTCVal = minTC > 0 ? minTC : 0;
     const maxTCVal = maxTC > 0 ? maxTC : 99999999;
+    const minYoeVal = minYoe > 0 ? minYoe : 0;
+    const maxYoeVal = maxYoe > 0 ? maxYoe : 99;
 
     // Fetch with all filters as template literal (neon safe)
     let rows, countRows;
@@ -37,22 +43,28 @@ export async function GET(req: NextRequest) {
             c.name as company_name, c.slug, c.logo
             FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+            AND (${role} = '' OR se.role ILIKE ${sRole})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
             AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
             AND se."totalCompensation" <= ${maxTCVal}
+            AND se."yearsOfExperience" >= ${minYoeVal}
+            AND se."yearsOfExperience" <= ${maxYoeVal}
             ORDER BY se."totalCompensation" DESC
             LIMIT ${pageSize} OFFSET ${offset}`,
         sql`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+            AND (${role} = '' OR se.role ILIKE ${sRole})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
             AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
-            AND se."totalCompensation" <= ${maxTCVal}`,
+            AND se."totalCompensation" <= ${maxTCVal}
+            AND se."yearsOfExperience" >= ${minYoeVal}
+            AND se."yearsOfExperience" <= ${maxYoeVal}`,
       ]);
     } else {
       [rows, countRows] = await Promise.all([
@@ -62,22 +74,28 @@ export async function GET(req: NextRequest) {
             c.name as company_name, c.slug, c.logo
             FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+            AND (${role} = '' OR se.role ILIKE ${sRole})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
             AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
             AND se."totalCompensation" <= ${maxTCVal}
+            AND se."yearsOfExperience" >= ${minYoeVal}
+            AND se."yearsOfExperience" <= ${maxYoeVal}
             ORDER BY se."totalCompensation" ASC
             LIMIT ${pageSize} OFFSET ${offset}`,
         sql`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+            AND (${role} = '' OR se.role ILIKE ${sRole})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
             AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
-            AND se."totalCompensation" <= ${maxTCVal}`,
+            AND se."totalCompensation" <= ${maxTCVal}
+            AND se."yearsOfExperience" >= ${minYoeVal}
+            AND se."yearsOfExperience" <= ${maxYoeVal}`,
       ]);
     }
 
