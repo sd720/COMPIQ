@@ -1,42 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { getServerSession } from 'next-auth';
+import { getDb } from '@/lib/db';
+import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import Papa from 'papaparse';
-import { normalizeCompanyName } from '@/lib/utils';
-import { City, EmploymentType, RoleCategory } from '@prisma/client';
-
-const CITY_MAP: Record<string, City> = {
-  bangalore: City.BANGALORE, bengaluru: City.BANGALORE,
-  mumbai: City.MUMBAI, bombay: City.MUMBAI,
-  delhi: City.DELHI, 'new delhi': City.DELHI,
-  hyderabad: City.HYDERABAD, hyd: City.HYDERABAD,
-  pune: City.PUNE,
-  chennai: City.CHENNAI, madras: City.CHENNAI,
-  kolkata: City.KOLKATA, calcutta: City.KOLKATA,
-  noida: City.NOIDA,
-  gurgaon: City.GURGAON, gurugram: City.GURGAON,
-  remote: City.REMOTE,
-};
-
-const ROLE_CATEGORY_MAP: Record<string, RoleCategory> = {
-  'software engineering': RoleCategory.SOFTWARE_ENGINEERING,
-  'software engineer': RoleCategory.SOFTWARE_ENGINEERING,
-  swe: RoleCategory.SOFTWARE_ENGINEERING,
-  'data science': RoleCategory.DATA_SCIENCE,
-  'data scientist': RoleCategory.DATA_SCIENCE,
-  'ml engineer': RoleCategory.DATA_SCIENCE,
-  'machine learning': RoleCategory.DATA_SCIENCE,
-  'product management': RoleCategory.PRODUCT_MANAGEMENT,
-  'product manager': RoleCategory.PRODUCT_MANAGEMENT,
-  pm: RoleCategory.PRODUCT_MANAGEMENT,
-  design: RoleCategory.DESIGN,
-  designer: RoleCategory.DESIGN,
-  devops: RoleCategory.DEVOPS,
-  'site reliability': RoleCategory.DEVOPS,
-  sre: RoleCategory.DEVOPS,
-  security: RoleCategory.SECURITY,
-};
 
 export async function POST(req: NextRequest) {
   try {
@@ -46,90 +12,46 @@ export async function POST(req: NextRequest) {
     }
 
     const formData = await req.formData();
-    const file = formData.get('file') as File;
-    if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+    const file = formData.get('file') as File | null;
+    if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
 
     const text = await file.text();
-    const { data: rows, errors } = Papa.parse(text, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, '_'),
-    });
+    const { data } = Papa.parse(text, { header: true, skipEmptyLines: true });
 
-    if (errors.length > 0 && rows.length === 0) {
-      return NextResponse.json({ error: 'Invalid CSV format', details: errors }, { status: 400 });
-    }
+    const sql = getDb();
+    let imported = 0;
+    const errors: string[] = [];
 
-    const results = { imported: 0, skipped: 0, errors: [] as string[] };
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] as Record<string, string>;
+    for (const row of data as Record<string, string>[]) {
       try {
-        const companyName = row.company?.trim();
-        const role = row.role?.trim();
-        const level = row.level?.trim();
-        const yoe = Number(row.years_of_experience ?? row.yoe ?? 0);
-        const base = Number(row.base_salary_lpa ?? row.base ?? 0);
-        const bonus = Number(row.bonus_lpa ?? row.bonus ?? 0);
-        const equity = Number(row.equity_lpa ?? row.equity ?? 0);
-        const cityRaw = row.city?.trim().toLowerCase() ?? '';
+        const companyName = row.company ?? row.Company ?? '';
+        if (!companyName) continue;
 
-        if (!companyName || !role || !level || !base) {
-          results.skipped++;
-          results.errors.push(`Row ${i + 2}: Missing required fields (company, role, level, base_salary_lpa)`);
-          continue;
-        }
-        if (base < 0 || base > 10000 || bonus < 0 || equity < 0) {
-          results.skipped++;
-          results.errors.push(`Row ${i + 2}: Invalid salary values`);
-          continue;
-        }
+        const companyRows = await sql`SELECT id FROM companies WHERE name ILIKE ${companyName} LIMIT 1`;
+        if (!companyRows.length) { errors.push(`Company not found: ${companyName}`); continue; }
 
-        const city = CITY_MAP[cityRaw] ?? City.OTHER;
-        const roleCategoryRaw = row.role_category?.trim().toLowerCase() ?? '';
-        const roleCategory = ROLE_CATEGORY_MAP[roleCategoryRaw] ?? RoleCategory.SOFTWARE_ENGINEERING;
-        const total = base + bonus + equity;
+        const companyId = companyRows[0].id;
+        const baseSalary = Number(row.baseSalary ?? row.base_salary ?? row['Base Salary'] ?? 0);
+        const totalComp = Number(row.totalCompensation ?? row.total_compensation ?? row['Total Compensation'] ?? baseSalary);
+        const city = (row.city ?? row.City ?? 'BANGALORE').toUpperCase().replace(/ /g, '_');
+        const cityLabel = city.charAt(0) + city.slice(1).toLowerCase();
+        const level = row.level ?? row.Level ?? 'Mid-Level';
+        const role = row.role ?? row.Role ?? 'Software Engineer';
 
-        const normalized = normalizeCompanyName(companyName);
-        let company = await prisma.company.findFirst({ where: { normalizedName: normalized } });
-        if (!company) {
-          const slug = `${companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now()}`;
-          company = await prisma.company.create({
-            data: { name: companyName, normalizedName: normalized, slug, industry: 'Technology', hqLocation: 'India' },
-          });
-        }
-
-        const levelOrderMap: Record<string, number> = {
-          intern: 0, junior: 2, mid: 4, senior: 6, staff: 7, principal: 8,
-          l1: 1, l2: 2, l3: 3, l4: 4, l5: 5, l6: 6, l7: 7,
-          'sde-i': 2, 'sde-ii': 4, 'sde-iii': 6,
-        };
-        const levelOrder = levelOrderMap[level.toLowerCase()] ?? 5;
-
-        await prisma.salaryEntry.create({
-          data: {
-            companyId: company.id,
-            role, roleCategory, level, levelOrder,
-            yearsOfExperience: yoe,
-            baseSalary: base, bonus, equity,
-            totalCompensation: total,
-            location: city, city,
-            employmentType: EmploymentType.FULL_TIME,
-            anonymous: true,
-          },
-        });
-        results.imported++;
-      } catch {
-        results.skipped++;
-        results.errors.push(`Row ${i + 2}: Processing error`);
+        await sql`INSERT INTO salary_entries (id, "companyId", role, "roleCategory", level, "levelOrder",
+          "yearsOfExperience", "baseSalary", bonus, equity, "totalCompensation", city, location,
+          "employmentType", verified, anonymous, "submittedAt")
+          VALUES (gen_random_uuid(), ${companyId}, ${role}, 'SOFTWARE_ENGINEERING',
+          ${level}, 3, ${Number(row.yearsOfExperience ?? row.yoe ?? 0)},
+          ${baseSalary}, ${Number(row.bonus ?? 0)}, ${Number(row.equity ?? 0)},
+          ${totalComp}, ${city}::"City", ${cityLabel}, 'FULL_TIME', false, true, NOW())`;
+        imported++;
+      } catch (e) {
+        errors.push(`Row error: ${e}`);
       }
     }
 
-    return NextResponse.json({
-      success: true,
-      message: `Import complete: ${results.imported} imported, ${results.skipped} skipped`,
-      ...results,
-    });
+    return NextResponse.json({ success: true, imported, errors: errors.slice(0, 5), total: data.length });
   } catch (error) {
     console.error('[POST /api/import]', error);
     return NextResponse.json({ error: 'Import failed' }, { status: 500 });

@@ -7,10 +7,7 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
-  serverExternalPackages: ['pg', '@prisma/client', '@prisma/adapter-pg', 'prisma'],
-  experimental: {
-    serverActions: {},
-  },
+  serverExternalPackages: ['@neondatabase/serverless'],
 };
 
 export default nextConfig;

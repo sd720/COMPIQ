@@ -1,79 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getDb } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const slugs = searchParams.getAll('slugs'); // e.g. ?slugs=google&slugs=amazon
-    const role = searchParams.get('role') ?? undefined;
-    const level = searchParams.get('level') ?? undefined;
+    const slugs = searchParams.getAll('slugs[]').length > 0
+      ? searchParams.getAll('slugs[]')
+      : (searchParams.get('slugs') ?? '').split(',').filter(Boolean);
 
-    if (!slugs.length || slugs.length < 2) {
-      return NextResponse.json({ error: 'At least 2 company slugs required' }, { status: 400 });
-    }
-    if (slugs.length > 3) {
-      return NextResponse.json({ error: 'Maximum 3 companies for comparison' }, { status: 400 });
-    }
+    if (!slugs.length) return NextResponse.json({ error: 'No company slugs provided' }, { status: 400 });
 
-    const companies = await prisma.company.findMany({
-      where: { slug: { in: slugs } },
-    });
+    const sql = getDb();
+    const results = await Promise.all(slugs.slice(0, 3).map(async (slug) => {
+      const companyRows = await sql`SELECT * FROM companies WHERE slug = ${slug.trim()} LIMIT 1`;
+      if (!companyRows.length) return null;
+      const company = companyRows[0];
 
-    const companyMap: Record<string, typeof companies[0]> = {};
-    for (const c of companies) companyMap[c.slug] = c;
+      const levelStats = await sql`SELECT level, "levelOrder",
+        COUNT(*) as count, AVG("totalCompensation") as avg_tc, MAX("totalCompensation") as max_tc,
+        AVG("baseSalary") as avg_base, AVG(bonus) as avg_bonus, AVG(equity) as avg_equity
+        FROM salary_entries WHERE "companyId" = ${company.id}
+        GROUP BY level, "levelOrder" ORDER BY "levelOrder" ASC`;
 
-    const results = await Promise.all(
-      slugs.map(async (slug) => {
-        const company = companyMap[slug];
-        if (!company) return null;
+      const overall = await sql`SELECT COUNT(*) as count, AVG("totalCompensation") as avg_tc,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "totalCompensation") as median_tc,
+        MAX("totalCompensation") as max_tc
+        FROM salary_entries WHERE "companyId" = ${company.id}`;
 
-        const where: Record<string, unknown> = { companyId: company.id };
-        if (role) where.role = { contains: role, mode: 'insensitive' };
-        if (level) where.level = { contains: level, mode: 'insensitive' };
-
-        const entries = await prisma.salaryEntry.findMany({ where });
-
-        if (!entries.length) return { company: { id: company.id, name: company.name, slug: company.slug, logo: company.logo }, stats: null, levelBreakdown: [] };
-
-        const tcs = entries.map((e) => e.totalCompensation);
-        const bases = entries.map((e) => e.baseSalary);
-        const bonuses = entries.map((e) => e.bonus);
-        const equities = entries.map((e) => e.equity);
-
-        const median = (arr: number[]) => {
-          const s = [...arr].sort((a, b) => a - b);
-          return s[Math.floor(s.length / 2)];
-        };
-
-        // Level breakdown
-        const levelGroups: Record<string, number[]> = {};
-        for (const e of entries) {
-          if (!levelGroups[e.level]) levelGroups[e.level] = [];
-          levelGroups[e.level].push(e.totalCompensation);
-        }
-
-        return {
-          company: { id: company.id, name: company.name, slug: company.slug, logo: company.logo, industry: company.industry },
-          stats: {
-            count: entries.length,
-            medianTC: Math.round(median(tcs) * 10) / 10,
-            avgTC: Math.round((tcs.reduce((a, b) => a + b, 0) / tcs.length) * 10) / 10,
-            maxTC: Math.round(Math.max(...tcs) * 10) / 10,
-            medianBase: Math.round(median(bases) * 10) / 10,
-            medianBonus: Math.round(median(bonuses) * 10) / 10,
-            medianEquity: Math.round(median(equities) * 10) / 10,
-          },
-          levelBreakdown: Object.entries(levelGroups)
-            .map(([level, arr]) => ({
-              level,
-              medianTC: Math.round(median(arr) * 10) / 10,
-              count: arr.length,
-              levelOrder: entries.find((e) => e.level === level)?.levelOrder ?? 5,
-            }))
-            .sort((a, b) => a.levelOrder - b.levelOrder),
-        };
-      })
-    );
+      return {
+        company: { id: company.id, name: company.name, slug: company.slug, logo: company.logo, industry: company.industry, size: company.size },
+        stats: {
+          entryCount: Number(overall[0].count),
+          avgTC: Math.round(Number(overall[0].avg_tc || 0) * 10) / 10,
+          medianTC: Math.round(Number(overall[0].median_tc || 0) * 10) / 10,
+          maxTC: Math.round(Number(overall[0].max_tc || 0) * 10) / 10,
+        },
+        levels: levelStats.map((l: Record<string, unknown>) => ({
+          level: l.level, levelOrder: Number(l.levelorder ?? l.levelOrder),
+          count: Number(l.count),
+          avgTC: Math.round(Number(l.avg_tc) * 10) / 10,
+          maxTC: Math.round(Number(l.max_tc) * 10) / 10,
+          avgBase: Math.round(Number(l.avg_base) * 10) / 10,
+          avgBonus: Math.round(Number(l.avg_bonus) * 10) / 10,
+          avgEquity: Math.round(Number(l.avg_equity) * 10) / 10,
+        })),
+      };
+    }));
 
     return NextResponse.json({ data: results.filter(Boolean) });
   } catch (error) {

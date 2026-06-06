@@ -1,83 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { salaryFilterSchema } from '@/lib/validators';
+import { getDb } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const rawParams = {
-      company: searchParams.get('company') ?? undefined,
-      role: searchParams.get('role') ?? undefined,
-      roleCategory: searchParams.get('roleCategory') ?? undefined,
-      level: searchParams.get('level') ?? undefined,
-      city: searchParams.get('city') ?? undefined,
-      minYoe: searchParams.get('minYoe') ? Number(searchParams.get('minYoe')) : undefined,
-      maxYoe: searchParams.get('maxYoe') ? Number(searchParams.get('maxYoe')) : undefined,
-      minTC: searchParams.get('minTC') ? Number(searchParams.get('minTC')) : undefined,
-      maxTC: searchParams.get('maxTC') ? Number(searchParams.get('maxTC')) : undefined,
-      sortBy: (searchParams.get('sortBy') ?? 'totalCompensation') as 'totalCompensation' | 'baseSalary' | 'submittedAt' | 'yearsOfExperience',
-      sortOrder: (searchParams.get('sortOrder') ?? 'desc') as 'asc' | 'desc',
-      page: Number(searchParams.get('page') ?? 1),
-      pageSize: Number(searchParams.get('pageSize') ?? 25),
+    const search = searchParams.get('search') ?? '';
+    const company = searchParams.get('company') ?? '';
+    const roleCategory = searchParams.get('roleCategory') ?? '';
+    const city = searchParams.get('city') ?? '';
+    const level = searchParams.get('level') ?? '';
+    const minTC = Number(searchParams.get('minTC') ?? 0);
+    const maxTC = Number(searchParams.get('maxTC') ?? 0);
+    const sortBy = searchParams.get('sortBy') ?? 'totalCompensation';
+    const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'ASC' : 'DESC';
+    const page = Math.max(1, Number(searchParams.get('page') ?? 1));
+    const pageSize = Math.min(50, Number(searchParams.get('pageSize') ?? 20));
+    const offset = (page - 1) * pageSize;
+
+    const validSortCols: Record<string, string> = {
+      totalCompensation: '"totalCompensation"',
+      baseSalary: '"baseSalary"',
+      yearsOfExperience: '"yearsOfExperience"',
+      submittedAt: '"submittedAt"',
     };
+    const orderCol = validSortCols[sortBy] ?? '"totalCompensation"';
 
-    const params = salaryFilterSchema.parse(rawParams);
+    const sql = getDb();
 
-    const where: Record<string, unknown> = {};
+    // Build WHERE conditions using parameterized queries
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
 
-    if (params.company) {
-      where.company = {
-        OR: [
-          { name: { contains: params.company, mode: 'insensitive' } },
-          { slug: { contains: params.company.toLowerCase() } },
-        ],
-      };
-    }
-    if (params.role) {
-      where.role = { contains: params.role, mode: 'insensitive' };
-    }
-    if (params.roleCategory) {
-      where.roleCategory = params.roleCategory;
-    }
-    if (params.level) {
-      where.level = { contains: params.level, mode: 'insensitive' };
-    }
-    if (params.city) {
-      where.city = params.city;
-    }
-    if (params.minYoe !== undefined || params.maxYoe !== undefined) {
-      where.yearsOfExperience = {
-        ...(params.minYoe !== undefined ? { gte: params.minYoe } : {}),
-        ...(params.maxYoe !== undefined ? { lte: params.maxYoe } : {}),
-      };
-    }
-    if (params.minTC !== undefined || params.maxTC !== undefined) {
-      where.totalCompensation = {
-        ...(params.minTC !== undefined ? { gte: params.minTC } : {}),
-        ...(params.maxTC !== undefined ? { lte: params.maxTC } : {}),
-      };
-    }
+    if (search) { conditions.push(`(se.role ILIKE $${i} OR c.name ILIKE $${i})`); values.push(`%${search}%`); i++; }
+    if (company) { conditions.push(`c.name ILIKE $${i}`); values.push(`%${company}%`); i++; }
+    if (roleCategory) { conditions.push(`se."roleCategory" = $${i}`); values.push(roleCategory); i++; }
+    if (city) { conditions.push(`se.city::text = $${i}`); values.push(city); i++; }
+    if (level) { conditions.push(`se.level ILIKE $${i}`); values.push(`%${level}%`); i++; }
+    if (minTC > 0) { conditions.push(`se."totalCompensation" >= $${i}`); values.push(minTC); i++; }
+    if (maxTC > 0) { conditions.push(`se."totalCompensation" <= $${i}`); values.push(maxTC); i++; }
 
-    const [total, entries] = await Promise.all([
-      prisma.salaryEntry.count({ where }),
-      prisma.salaryEntry.findMany({
-        where,
-        include: { company: { select: { name: true, slug: true, logo: true, industry: true } } },
-        orderBy: { [params.sortBy]: params.sortOrder },
-        skip: (params.page - 1) * params.pageSize,
-        take: params.pageSize,
-      }),
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const baseQ = `SELECT se.id, se.role, se."roleCategory", se.level, se."levelOrder", se."yearsOfExperience",
+      se."baseSalary", se.bonus, se.equity, se."totalCompensation", se.city, se.verified, se."submittedAt",
+      c.name as company_name, c.slug, c.logo
+      FROM salary_entries se JOIN companies c ON se."companyId" = c.id ${whereClause}`;
+
+    const [rows, countRows] = await Promise.all([
+      sql.unsafe(`${baseQ} ORDER BY se.${orderCol} ${sortOrder} LIMIT $${i} OFFSET $${i+1}`, [...values, pageSize, offset]),
+      sql.unsafe(`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id ${whereClause}`, values),
     ]);
 
-    return NextResponse.json({
-      data: entries,
-      meta: {
-        total,
-        page: params.page,
-        pageSize: params.pageSize,
-        totalPages: Math.ceil(total / params.pageSize),
-      },
-    });
+    const total = Number(countRows[0].count);
+    const data = rows.map((r: Record<string, unknown>) => ({
+      id: r.id, role: r.role, roleCategory: r.rolecategory ?? r.roleCategory,
+      level: r.level, levelOrder: r.levelorder ?? r.levelOrder,
+      yearsOfExperience: Number(r.yearsofexperience ?? r.yearsOfExperience),
+      baseSalary: Number(r.basesalary ?? r.baseSalary), bonus: Number(r.bonus),
+      equity: Number(r.equity),
+      totalCompensation: Number(r.totalcompensation ?? r.totalCompensation),
+      city: r.city, verified: r.verified, submittedAt: r.submittedat ?? r.submittedAt,
+      company: { name: r.company_name, slug: r.slug, logo: r.logo },
+    }));
+
+    return NextResponse.json({ data, meta: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) } });
   } catch (error) {
     console.error('[GET /api/salaries]', error);
     return NextResponse.json({ error: 'Failed to fetch salaries' }, { status: 500 });

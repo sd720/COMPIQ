@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getDb } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,21 +13,30 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Total compensation required' }, { status: 400 });
     }
 
-    const where: Record<string, unknown> = {};
-    if (role) where.role = { contains: role, mode: 'insensitive' };
-    if (level) where.level = { contains: level, mode: 'insensitive' };
-    if (city) where.city = city;
-
-    const entries = await prisma.salaryEntry.findMany({
-      where,
-      select: { totalCompensation: true, baseSalary: true, bonus: true, equity: true, company: { select: { name: true, slug: true } }, level: true, city: true },
-    });
-
-    if (!entries.length) {
-      return NextResponse.json({ error: 'No data found for this role/level combination', percentile: null });
+    const sql = getDb();
+    let entries;
+    if (role && level && city) {
+      entries = await sql`SELECT "totalCompensation", c.name as company_name, c.slug, se.level, se.city
+        FROM salary_entries se JOIN companies c ON se."companyId" = c.id
+        WHERE se.role ILIKE ${`%${role}%`} AND se.level ILIKE ${`%${level}%`} AND se.city::text = ${city}`;
+    } else if (role && level) {
+      entries = await sql`SELECT "totalCompensation", c.name as company_name, c.slug, se.level, se.city
+        FROM salary_entries se JOIN companies c ON se."companyId" = c.id
+        WHERE se.role ILIKE ${`%${role}%`} AND se.level ILIKE ${`%${level}%`}`;
+    } else if (role) {
+      entries = await sql`SELECT "totalCompensation", c.name as company_name, c.slug, se.level, se.city
+        FROM salary_entries se JOIN companies c ON se."companyId" = c.id
+        WHERE se.role ILIKE ${`%${role}%`}`;
+    } else {
+      entries = await sql`SELECT "totalCompensation", c.name as company_name, c.slug, se.level, se.city
+        FROM salary_entries se JOIN companies c ON se."companyId" = c.id`;
     }
 
-    const tcs = entries.map((e: { totalCompensation: number }) => e.totalCompensation).sort((a: number, b: number) => a - b);
+    if (!entries.length) {
+      return NextResponse.json({ error: 'No data found for this combination', percentile: null });
+    }
+
+    const tcs = entries.map((e: Record<string, unknown>) => Number(e.totalcompensation ?? e.totalCompensation)).sort((a: number, b: number) => a - b);
     const belowCount = tcs.filter((tc: number) => tc < offerTC).length;
     const percentile = Math.round((belowCount / tcs.length) * 100);
 
@@ -38,14 +47,12 @@ export async function GET(req: NextRequest) {
     const p90 = tcs[Math.floor(tcs.length * 0.9)];
 
     const topPayers = [...entries]
-      .sort((a, b) => b.totalCompensation - a.totalCompensation)
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => Number(b.totalcompensation ?? b.totalCompensation) - Number(a.totalcompensation ?? a.totalCompensation))
       .slice(0, 5)
-      .map((e) => ({
-        company: e.company.name,
-        slug: e.company.slug,
-        tc: e.totalCompensation,
-        level: e.level,
-        city: e.city,
+      .map((e: Record<string, unknown>) => ({
+        company: e.company_name, slug: e.slug,
+        tc: Math.round(Number(e.totalcompensation ?? e.totalCompensation) * 10) / 10,
+        level: e.level, city: e.city,
       }));
 
     let verdict = '';
@@ -55,16 +62,8 @@ export async function GET(req: NextRequest) {
     else verdict = 'Below Market — Significantly underpaid';
 
     return NextResponse.json({
-      percentile,
-      verdict,
-      marketData: {
-        sampleSize: entries.length,
-        p10: Math.round(p10 * 10) / 10,
-        p25: Math.round(p25 * 10) / 10,
-        p50: Math.round(p50 * 10) / 10,
-        p75: Math.round(p75 * 10) / 10,
-        p90: Math.round(p90 * 10) / 10,
-      },
+      percentile, verdict,
+      marketData: { sampleSize: entries.length, p10: Math.round(p10*10)/10, p25: Math.round(p25*10)/10, p50: Math.round(p50*10)/10, p75: Math.round(p75*10)/10, p90: Math.round(p90*10)/10 },
       topPayers,
     });
   } catch (error) {
