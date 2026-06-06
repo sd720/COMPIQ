@@ -1,0 +1,180 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts     Account[]
+  sessions     Session[]
+  salaryEntries SalaryEntry[]
+  savedItems   SavedItem[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  normalizedName String @unique
+  slug        String   @unique
+  logo        String?
+  industry    String
+  hqLocation  String
+  website     String?
+  description String?  @db.Text
+  foundedYear Int?
+  size        CompanySize @default(MEDIUM)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  salaryEntries SalaryEntry[]
+  savedItems    SavedItem[]
+
+  @@map("companies")
+}
+
+enum CompanySize {
+  STARTUP
+  SMALL
+  MEDIUM
+  LARGE
+  ENTERPRISE
+}
+
+model SalaryEntry {
+  id               String         @id @default(cuid())
+  companyId        String
+  role             String
+  roleCategory     RoleCategory
+  level            String         // e.g. "L3", "SDE-1", "Senior", "Staff"
+  levelOrder       Int            // numeric for sorting: 1-10
+  yearsOfExperience Float
+  baseSalary       Float          // in INR Lakhs per annum
+  bonus            Float          @default(0)
+  equity           Float          @default(0) // annualized equity
+  totalCompensation Float         // computed: base + bonus + equity
+  location         String
+  city             City           @default(BANGALORE)
+  employmentType   EmploymentType @default(FULL_TIME)
+  gender           String?
+  education        String?
+  verified         Boolean        @default(false)
+  anonymous        Boolean        @default(true)
+  submittedAt      DateTime       @default(now())
+  reportedDate     DateTime       @default(now())
+  userId           String?
+
+  company Company      @relation(fields: [companyId], references: [id])
+  user    User?        @relation(fields: [userId], references: [id])
+
+  @@index([companyId])
+  @@index([roleCategory])
+  @@index([city])
+  @@index([levelOrder])
+  @@index([totalCompensation])
+  @@map("salary_entries")
+}
+
+model SavedItem {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String?
+  entryId   String?
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id])
+
+  @@map("saved_items")
+}
+
+enum RoleCategory {
+  SOFTWARE_ENGINEERING
+  DATA_SCIENCE
+  PRODUCT_MANAGEMENT
+  DESIGN
+  DEVOPS
+  SECURITY
+  MANAGEMENT
+  SALES
+  MARKETING
+  FINANCE
+  HR
+  OTHER
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum City {
+  BANGALORE
+  MUMBAI
+  DELHI
+  HYDERABAD
+  PUNE
+  CHENNAI
+  KOLKATA
+  NOIDA
+  GURGAON
+  REMOTE
+  OTHER
+}
