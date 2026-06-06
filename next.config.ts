@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
     ],
   },
-  serverExternalPackages: ['@neondatabase/serverless'],
+  // Let Next.js bundle @neondatabase/serverless normally (it's pure fetch-based)
 };
 
 export default nextConfig;
