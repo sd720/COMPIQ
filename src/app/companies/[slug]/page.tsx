@@ -3,7 +3,7 @@ import { use, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line, Area, AreaChart, Legend
+  Area, AreaChart, Legend
 } from 'recharts';
 import { ArrowLeft, Building2, ExternalLink, TrendingUp, Users, MapPin, BarChart3, Star } from 'lucide-react';
 import { formatLakhs, cityLabel, cn } from '@/lib/utils';
@@ -12,11 +12,10 @@ interface CompanyData {
   company: {
     id: string; name: string; slug: string; logo: string | null;
     industry: string; hqLocation: string; size: string; website: string | null; description: string | null;
+    entryCount: number; avgTC: number; medianTC: number;
   };
-  stats: { entryCount: number; avgTC: number; medianTC: number; maxTC: number; minTC: number };
-  levelProgression: { level: string; levelOrder: number; medianTC: number; avgTC: number; p25: number; p75: number; count: number }[];
-  roleBreakdown: { role: string; avgTC: number; count: number }[];
-  cityDistribution: { city: string; count: number }[];
+  levelBreakdown: { level: string; levelOrder: number; avgTC: number; maxTC: number; minTC: number; avgBase: number; avgBonus: number; avgEquity: number; count: number }[];
+  cityBreakdown: { city: string; count: number; avgTC: number }[];
   recentEntries: { id: string; role: string; level: string; totalCompensation: number; baseSalary: number; bonus: number; equity: number; yearsOfExperience: number; city: string; verified: boolean }[];
 }
 
@@ -39,7 +38,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
   const [data, setData] = useState<CompanyData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState<'overview' | 'levels' | 'roles'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'levels'>('overview');
 
   useEffect(() => {
     fetch(`/api/companies/${slug}`)
@@ -67,7 +66,10 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
     </div>
   );
 
-  const { company, stats, levelProgression, roleBreakdown, cityDistribution, recentEntries } = data;
+  const { company, levelBreakdown, cityBreakdown, recentEntries } = data;
+  
+  const maxTC = levelBreakdown.length > 0 ? Math.max(...levelBreakdown.map(l => l.maxTC)) : 0;
+  const minTC = levelBreakdown.length > 0 ? Math.min(...levelBreakdown.map(l => l.minTC)) : 0;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -111,11 +113,11 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {[
-          { label: 'Median TC', value: formatLakhs(stats.medianTC), color: 'text-amber-400' },
-          { label: 'Avg TC', value: formatLakhs(stats.avgTC), color: 'text-violet-400' },
-          { label: 'Max TC', value: formatLakhs(stats.maxTC), color: 'text-green-400' },
-          { label: 'Min TC', value: formatLakhs(stats.minTC), color: 'text-gray-400' },
-          { label: 'Reports', value: stats.entryCount.toString(), color: 'text-blue-400' },
+          { label: 'Median TC', value: formatLakhs(company.medianTC), color: 'text-amber-400' },
+          { label: 'Avg TC', value: formatLakhs(company.avgTC), color: 'text-violet-400' },
+          { label: 'Max TC', value: formatLakhs(maxTC), color: 'text-green-400' },
+          { label: 'Min TC', value: formatLakhs(minTC), color: 'text-gray-400' },
+          { label: 'Reports', value: company.entryCount.toString(), color: 'text-blue-400' },
         ].map(stat => (
           <div key={stat.label} className="stat-card text-center">
             <p className={`text-xl font-bold animated-number ${stat.color}`}>{stat.value}</p>
@@ -126,7 +128,7 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 glass-card p-1 w-fit">
-        {(['overview', 'levels', 'roles'] as const).map(tab => (
+        {(['overview', 'levels'] as const).map(tab => (
           <button
             key={tab}
             id={`tab-${tab}`}
@@ -144,13 +146,13 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Level Progression Chart */}
-          {levelProgression.length > 0 && (
+          {levelBreakdown.length > 0 && (
             <div className="glass-card p-5">
               <h3 className="font-semibold text-gray-100 mb-4 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-violet-400" /> Level Progression
               </h3>
               <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={levelProgression}>
+                <AreaChart data={levelBreakdown}>
                   <defs>
                     <linearGradient id="tcGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
@@ -161,20 +163,20 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
                   <XAxis dataKey="level" tick={{ fill: '#6b7280', fontSize: 11 }} />
                   <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} tickFormatter={v => `₹${v}L`} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="medianTC" name="Median TC" stroke="#8b5cf6" fill="url(#tcGrad)" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 4 }} />
+                  <Area type="monotone" dataKey="avgTC" name="Average TC" stroke="#8b5cf6" fill="url(#tcGrad)" strokeWidth={2} dot={{ fill: '#8b5cf6', r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
 
           {/* City Distribution */}
-          {cityDistribution.length > 0 && (
+          {cityBreakdown.length > 0 && (
             <div className="glass-card p-5">
               <h3 className="font-semibold text-gray-100 mb-4 flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-violet-400" /> City Distribution
               </h3>
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={cityDistribution.map(c => ({ ...c, city: cityLabel(c.city) }))}>
+                <BarChart data={cityBreakdown.map(c => ({ ...c, city: cityLabel(c.city) }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="city" tick={{ fill: '#6b7280', fontSize: 11 }} />
                   <YAxis tick={{ fill: '#6b7280', fontSize: 11 }} />
@@ -222,69 +224,35 @@ export default function CompanyDetailPage({ params }: { params: Promise<{ slug: 
           <h3 className="font-semibold text-gray-100 mb-5 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-violet-400" /> Compensation by Level
           </h3>
-          {levelProgression.length === 0 ? (
+          {levelBreakdown.length === 0 ? (
             <p className="text-gray-500 text-center py-8">No level data available</p>
           ) : (
             <>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={levelProgression} barGap={4}>
+                <BarChart data={levelBreakdown} barGap={4}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis dataKey="level" tick={{ fill: '#6b7280', fontSize: 12 }} />
                   <YAxis tick={{ fill: '#6b7280', fontSize: 12 }} tickFormatter={v => `₹${v}L`} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend wrapperStyle={{ color: '#9ca3af', fontSize: 12 }} />
-                  <Bar dataKey="p25" name="P25" fill="#4c1d95" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="medianTC" name="Median" fill="#7c3aed" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="p75" name="P75" fill="#a855f7" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="minTC" name="Min" fill="#4c1d95" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="avgTC" name="Average" fill="#7c3aed" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="maxTC" name="Max" fill="#a855f7" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
 
               <div className="mt-6 space-y-3">
-                {levelProgression.map(l => (
+                {levelBreakdown.map(l => (
                   <div key={l.level} className="flex items-center gap-4 p-3 rounded-lg bg-gray-800/30 hover:bg-gray-800/50 transition-colors">
                     <span className="badge badge-purple w-24 justify-center">{l.level}</span>
                     <div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-violet-700 to-purple-500 rounded-full transition-all"
-                        style={{ width: `${Math.min(100, (l.medianTC / (levelProgression[levelProgression.length - 1]?.p75 || 100)) * 100)}%` }}
+                        style={{ width: `${Math.min(100, (l.avgTC / (levelBreakdown[levelBreakdown.length - 1]?.maxTC || 100)) * 100)}%` }}
                       />
                     </div>
-                    <span className="text-amber-400 font-bold text-sm animated-number w-20 text-right">{formatLakhs(l.medianTC)}</span>
+                    <span className="text-amber-400 font-bold text-sm animated-number w-20 text-right">{formatLakhs(l.avgTC)}</span>
                     <span className="text-gray-500 text-xs w-16 text-right">{l.count} reports</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Roles Tab */}
-      {activeTab === 'roles' && (
-        <div className="glass-card p-5">
-          <h3 className="font-semibold text-gray-100 mb-5">Compensation by Role</h3>
-          {roleBreakdown.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No role data available</p>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={roleBreakdown.slice(0, 10)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                  <XAxis type="number" tick={{ fill: '#6b7280', fontSize: 11 }} tickFormatter={v => `₹${v}L`} />
-                  <YAxis type="category" dataKey="role" width={140} tick={{ fill: '#9ca3af', fontSize: 11 }} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="avgTC" name="Avg TC" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-
-              <div className="mt-4 space-y-2">
-                {roleBreakdown.map(r => (
-                  <div key={r.role} className="flex items-center justify-between p-3 rounded-lg bg-gray-800/30">
-                    <div>
-                      <span className="text-gray-200 text-sm font-medium">{r.role}</span>
-                      <span className="text-gray-600 text-xs ml-2">{r.count} reports</span>
-                    </div>
-                    <span className="text-amber-400 font-bold text-sm animated-number">{formatLakhs(r.avgTC)}</span>
                   </div>
                 ))}
               </div>
