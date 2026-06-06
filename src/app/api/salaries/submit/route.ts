@@ -1,38 +1,89 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
     const body = await req.json();
-    const { companySlug, role, roleCategory, level, levelOrder, yearsOfExperience,
-      baseSalary, bonus, equity, totalCompensation, city, employmentType } = body;
+    const {
+      companyName, role, roleCategory, level, yearsOfExperience,
+      baseSalary, bonus, equity, city, employmentType, education, anonymous,
+    } = body;
 
-    if (!companySlug || !role || !level || !baseSalary || !totalCompensation || !city) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    // Validate required fields
+    if (!companyName || !role || !level || !baseSalary || !city) {
+      return NextResponse.json({ error: 'Please fill all required fields: company, role, level, base salary, city' }, { status: 400 });
     }
 
     const sql = getDb();
-    const companyRows = await sql`SELECT id FROM companies WHERE slug = ${companySlug} LIMIT 1`;
-    if (!companyRows.length) return NextResponse.json({ error: 'Company not found' }, { status: 404 });
 
-    const companyId = companyRows[0].id;
-    const userId = session?.user ? (session.user as { id?: string }).id ?? null : null;
-    const cityLabel = city.charAt(0) + city.slice(1).toLowerCase();
+    // Find company by name (fuzzy match)
+    let companyRows = await sql`SELECT id, name FROM companies WHERE name ILIKE ${companyName} LIMIT 1`;
+    if (!companyRows.length) {
+      companyRows = await sql`SELECT id, name FROM companies WHERE name ILIKE ${`%${companyName}%`} LIMIT 1`;
+    }
 
-    await sql`INSERT INTO salary_entries (id, "companyId", role, "roleCategory", level, "levelOrder",
-      "yearsOfExperience", "baseSalary", bonus, equity, "totalCompensation", city, location,
-      "employmentType", verified, anonymous, "userId", "submittedAt")
-      VALUES (gen_random_uuid(), ${companyId}, ${role}, ${roleCategory ?? 'SOFTWARE_ENGINEERING'},
-      ${level}, ${levelOrder ?? 3}, ${yearsOfExperience ?? 0}, ${baseSalary}, ${bonus ?? 0},
-      ${equity ?? 0}, ${totalCompensation}, ${city}::"City", ${cityLabel},
-      ${employmentType ?? 'FULL_TIME'}, false, ${userId ? false : true}, ${userId}, NOW())`;
+    let companyId: string;
+    if (!companyRows.length) {
+      // Auto-create company if not found
+      const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const newCompany = await sql`
+        INSERT INTO companies (id, name, "normalizedName", slug, "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), ${companyName}, ${companyName.toLowerCase()}, ${slug}, NOW(), NOW())
+        ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+      `;
+      companyId = newCompany[0].id;
+    } else {
+      companyId = companyRows[0].id;
+    }
 
-    return NextResponse.json({ success: true, message: 'Salary submitted successfully!' });
+    const safeBonus = Number(bonus) || 0;
+    const safeEquity = Number(equity) || 0;
+    const safeBase = Number(baseSalary);
+    const totalCompensation = safeBase + safeBonus + safeEquity;
+
+    // Map city - use BANGALORE as fallback for unmapped cities
+    const cityMap: Record<string, string> = {
+      BANGALORE: 'BANGALORE', MUMBAI: 'MUMBAI', DELHI: 'DELHI',
+      HYDERABAD: 'HYDERABAD', PUNE: 'PUNE', CHENNAI: 'CHENNAI',
+      NOIDA: 'NOIDA', GURGAON: 'GURGAON', REMOTE: 'REMOTE',
+      KOLKATA: 'BANGALORE', OTHER: 'BANGALORE', // fallback
+    };
+    const dbCity = cityMap[city] ?? 'BANGALORE';
+    const cityLabel = dbCity.charAt(0) + dbCity.slice(1).toLowerCase();
+
+    // Level order mapping
+    const levelOrderMap: Record<string, number> = {
+      'intern': 1, 'junior': 2, 'mid-level': 3, 'senior': 4,
+      'staff': 5, 'principal': 6, 'distinguished': 7, 'fellow': 8,
+      'l3': 2, 'l4': 3, 'l5': 4, 'l6': 5, 'l7': 6,
+      'sde-i': 2, 'sde-ii': 3, 'sde-iii': 4,
+      'e3': 2, 'e4': 3, 'e5': 4, 'e6': 5,
+    };
+    const levelOrder = levelOrderMap[level.toLowerCase()] ?? 3;
+
+    await sql`
+      INSERT INTO salary_entries (
+        id, "companyId", role, "roleCategory", level, "levelOrder",
+        "yearsOfExperience", "baseSalary", bonus, equity, "totalCompensation",
+        city, location, "employmentType", verified, anonymous, education, "submittedAt"
+      ) VALUES (
+        gen_random_uuid(), ${companyId}, ${role},
+        ${roleCategory ?? 'SOFTWARE_ENGINEERING'}, ${level}, ${levelOrder},
+        ${Number(yearsOfExperience) || 0}, ${safeBase}, ${safeBonus}, ${safeEquity},
+        ${totalCompensation}, ${dbCity}::"City", ${cityLabel},
+        ${employmentType ?? 'FULL_TIME'}, false,
+        ${anonymous !== false}, ${education ?? null}, NOW()
+      )
+    `;
+
+    return NextResponse.json({
+      success: true,
+      message: 'Salary submitted successfully!',
+      data: { totalCompensation },
+    });
   } catch (error) {
     console.error('[POST /api/salaries/submit]', error);
-    return NextResponse.json({ error: 'Failed to submit salary' }, { status: 500 });
+    return NextResponse.json({ error: 'Submission failed. Please try again.' }, { status: 500 });
   }
 }
