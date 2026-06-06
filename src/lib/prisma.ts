@@ -1,8 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import pg from 'pg';
-
-const { Pool } = pg;
+import { Pool } from 'pg';
 
 declare global {
   // eslint-disable-next-line no-var
@@ -18,6 +16,7 @@ function getPrisma(): PrismaClient {
   const pool = new Pool({
     connectionString,
     ssl: { rejectUnauthorized: false },
+    max: 1, // Serverless: limit connections
   });
 
   const adapter = new PrismaPg(pool);

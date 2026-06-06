@@ -27,8 +27,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No data found for this role/level combination', percentile: null });
     }
 
-    const tcs = entries.map((e) => e.totalCompensation).sort((a, b) => a - b);
-    const belowCount = tcs.filter((tc) => tc < offerTC).length;
+    const tcs = entries.map((e: { totalCompensation: number }) => e.totalCompensation).sort((a: number, b: number) => a - b);
+    const belowCount = tcs.filter((tc: number) => tc < offerTC).length;
     const percentile = Math.round((belowCount / tcs.length) * 100);
 
     const p10 = tcs[Math.floor(tcs.length * 0.1)];
