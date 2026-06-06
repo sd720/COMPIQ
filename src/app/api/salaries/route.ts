@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
             FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
-            AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+            AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         sql`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
-            AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+            AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
             FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
-            AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+            AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
         sql`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id
             WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
             AND (${company} = '' OR c.name ILIKE ${sCompany})
-            AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+            AND (${roleCategory} = '' OR se."roleCategory"::text = ${roleCategory})
             AND (${city} = '' OR se.city::text = ${city})
             AND (${level} = '' OR se.level ILIKE ${sLevel})
             AND se."totalCompensation" >= ${minTCVal}
