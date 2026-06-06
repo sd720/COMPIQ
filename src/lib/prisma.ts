@@ -7,8 +7,14 @@ const globalForPrisma = globalThis as any;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function createClient(): any {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.warn('[Prisma] DATABASE_URL not set — returning stub client');
+    // Return a stub so app doesn't crash at startup; queries will throw at call time
+    return new PrismaClient();
+  }
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL!,
+    connectionString,
     ssl: { rejectUnauthorized: false },
     max: 1,
   });
