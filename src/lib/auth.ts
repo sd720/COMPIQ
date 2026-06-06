@@ -1,11 +1,10 @@
 import NextAuth from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { prisma } from '@/lib/prisma';
+import { getDb } from '@/lib/db';
 import type { NextAuthOptions } from 'next-auth';
 
 export const authOptions: NextAuthOptions = {
-  // No PrismaAdapter — using JWT sessions only (simpler, no DB session table needed)
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID ?? 'placeholder',
@@ -22,11 +21,14 @@ export const authOptions: NextAuthOptions = {
         const email = credentials.email as string;
         const name = (credentials.name as string) || 'Anonymous User';
         try {
-          let user = await prisma.user.findUnique({ where: { email } });
-          if (!user) {
-            user = await prisma.user.create({ data: { email, name } });
+          const sql = getDb();
+          let users = await sql`SELECT id, email, name, image FROM users WHERE email = ${email} LIMIT 1`;
+          if (!users.length) {
+            users = await sql`INSERT INTO users (id, name, email, "createdAt", "updatedAt")
+              VALUES (gen_random_uuid(), ${name}, ${email}, NOW(), NOW()) RETURNING id, email, name, image`;
           }
-          return { id: user.id, email: user.email, name: user.name ?? name, image: user.image };
+          const user = users[0];
+          return { id: user.id, email: user.email, name: user.name ?? name, image: user.image ?? null };
         } catch {
           // If DB fails, still allow sign-in with a temp session
           return { id: email, email, name };
@@ -47,9 +49,7 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
-  pages: {
-    signIn: '/auth/signin',
-  },
+  pages: { signIn: '/auth/signin' },
   secret: process.env.NEXTAUTH_SECRET ?? 'fallback-secret-for-build',
 };
 
