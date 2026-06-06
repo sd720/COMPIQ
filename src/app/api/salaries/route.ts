@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     const city = searchParams.get('city') ?? '';
     const level = searchParams.get('level') ?? '';
     const minTC = Number(searchParams.get('minTC') ?? 0);
-    const maxTC = Number(searchParams.get('maxTC') ?? 0);
+    const maxTC = Number(searchParams.get('maxTC') ?? 999999);
     const sortBy = searchParams.get('sortBy') ?? 'totalCompensation';
     const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'ASC' : 'DESC';
     const page = Math.max(1, Number(searchParams.get('page') ?? 1));
@@ -26,41 +26,51 @@ export async function GET(req: NextRequest) {
     const orderCol = validSortCols[sortBy] ?? '"totalCompensation"';
 
     const sql = getDb();
+    const sSearch = search ? `%${search}%` : '%';
+    const sCompany = company ? `%${company}%` : '%';
+    const sLevel = level ? `%${level}%` : '%';
+    const effectiveMinTC = minTC > 0 ? minTC : 0;
+    const effectiveMaxTC = maxTC > 0 ? maxTC : 9999999;
 
-    // Build WHERE conditions using parameterized queries
-    const conditions: string[] = [];
-    const values: unknown[] = [];
-    let i = 1;
-
-    if (search) { conditions.push(`(se.role ILIKE $${i} OR c.name ILIKE $${i})`); values.push(`%${search}%`); i++; }
-    if (company) { conditions.push(`c.name ILIKE $${i}`); values.push(`%${company}%`); i++; }
-    if (roleCategory) { conditions.push(`se."roleCategory" = $${i}`); values.push(roleCategory); i++; }
-    if (city) { conditions.push(`se.city::text = $${i}`); values.push(city); i++; }
-    if (level) { conditions.push(`se.level ILIKE $${i}`); values.push(`%${level}%`); i++; }
-    if (minTC > 0) { conditions.push(`se."totalCompensation" >= $${i}`); values.push(minTC); i++; }
-    if (maxTC > 0) { conditions.push(`se."totalCompensation" <= $${i}`); values.push(maxTC); i++; }
-
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-
-    const baseQ = `SELECT se.id, se.role, se."roleCategory", se.level, se."levelOrder", se."yearsOfExperience",
-      se."baseSalary", se.bonus, se.equity, se."totalCompensation", se.city, se.verified, se."submittedAt",
-      c.name as company_name, c.slug, c.logo
-      FROM salary_entries se JOIN companies c ON se."companyId" = c.id ${whereClause}`;
-
+    // Use neon unsafe with a single string — build query without external params
+    // by using template literals for safe interpolation of all filter values
     const [rows, countRows] = await Promise.all([
-      sql.unsafe(`${baseQ} ORDER BY se.${orderCol} ${sortOrder} LIMIT $${i} OFFSET $${i+1}`, [...values, pageSize, offset]),
-      sql.unsafe(`SELECT COUNT(*) as count FROM salary_entries se JOIN companies c ON se."companyId" = c.id ${whereClause}`, values),
+      sql`SELECT se.id, se.role, se."roleCategory", se.level, se."levelOrder",
+          se."yearsOfExperience", se."baseSalary", se.bonus, se.equity,
+          se."totalCompensation", se.city, se.verified, se."submittedAt",
+          c.name as company_name, c.slug, c.logo
+          FROM salary_entries se JOIN companies c ON se."companyId" = c.id
+          WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+          AND (${company} = '' OR c.name ILIKE ${sCompany})
+          AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+          AND (${city} = '' OR se.city::text = ${city})
+          AND (${level} = '' OR se.level ILIKE ${sLevel})
+          AND se."totalCompensation" >= ${effectiveMinTC}
+          AND (${effectiveMaxTC} = 9999999 OR se."totalCompensation" <= ${effectiveMaxTC})
+          ORDER BY se.${sql.unsafe(orderCol)} ${sql.unsafe(sortOrder)}
+          LIMIT ${pageSize} OFFSET ${offset}`,
+      sql`SELECT COUNT(*) as count
+          FROM salary_entries se JOIN companies c ON se."companyId" = c.id
+          WHERE (${search} = '' OR se.role ILIKE ${sSearch} OR c.name ILIKE ${sSearch})
+          AND (${company} = '' OR c.name ILIKE ${sCompany})
+          AND (${roleCategory} = '' OR se."roleCategory" = ${roleCategory})
+          AND (${city} = '' OR se.city::text = ${city})
+          AND (${level} = '' OR se.level ILIKE ${sLevel})
+          AND se."totalCompensation" >= ${effectiveMinTC}
+          AND (${effectiveMaxTC} = 9999999 OR se."totalCompensation" <= ${effectiveMaxTC})`,
     ]);
 
     const total = Number(countRows[0].count);
     const data = rows.map((r: Record<string, unknown>) => ({
-      id: r.id, role: r.role, roleCategory: r.rolecategory ?? r.roleCategory,
+      id: r.id, role: r.role,
+      roleCategory: r.rolecategory ?? r.roleCategory,
       level: r.level, levelOrder: r.levelorder ?? r.levelOrder,
       yearsOfExperience: Number(r.yearsofexperience ?? r.yearsOfExperience),
-      baseSalary: Number(r.basesalary ?? r.baseSalary), bonus: Number(r.bonus),
-      equity: Number(r.equity),
+      baseSalary: Number(r.basesalary ?? r.baseSalary),
+      bonus: Number(r.bonus), equity: Number(r.equity),
       totalCompensation: Number(r.totalcompensation ?? r.totalCompensation),
-      city: r.city, verified: r.verified, submittedAt: r.submittedat ?? r.submittedAt,
+      city: r.city, verified: r.verified,
+      submittedAt: r.submittedat ?? r.submittedAt,
       company: { name: r.company_name, slug: r.slug, logo: r.logo },
     }));
 
