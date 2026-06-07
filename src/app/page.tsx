@@ -4,14 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowRight, TrendingUp, Building2, Search, GitCompare, Zap, Shield, BarChart3, Users } from 'lucide-react';
 
-const SAMPLE_ENTRIES = [
-  { company_name: 'Google', role: 'Software Engineer', level: 'L5', totalCompensation: 95, baseSalary: 60, yearsOfExperience: 5, slug: 'google', color: '#4285f4' },
-  { company_name: 'Microsoft', role: 'SDE-II', level: 'SDE-II', totalCompensation: 78, baseSalary: 52, yearsOfExperience: 3, slug: 'microsoft', color: '#00a4ef' },
-  { company_name: 'Flipkart', role: 'Senior Engineer', level: 'L5', totalCompensation: 65, baseSalary: 42, yearsOfExperience: 4, slug: 'flipkart', color: '#F7C600' },
-  { company_name: 'Amazon', role: 'SDE-II', level: 'SDE-II', totalCompensation: 72, baseSalary: 48, yearsOfExperience: 3, slug: 'amazon', color: '#FF9900' },
-  { company_name: 'Razorpay', role: 'Backend Engineer', level: 'Senior', totalCompensation: 55, baseSalary: 38, yearsOfExperience: 4, slug: 'razorpay', color: '#3395FF' },
-  { company_name: 'Swiggy', role: 'Staff Engineer', level: 'Staff', totalCompensation: 88, baseSalary: 58, yearsOfExperience: 7, slug: 'swiggy', color: '#FC8019' },
-];
+
 
 const FEATURES = [
   { icon: BarChart3, title: 'Level-Based Data', desc: 'Compare L3 vs L5 vs Staff. Titles lie — levels tell the truth.', color: 'text-violet-400', bg: 'bg-violet-500/10' },
@@ -28,8 +21,9 @@ function formatLakhs(v: number) {
 }
 
 export default function HomePage() {
-  const [stats, setStats] = useState({ entryCount: 499, companyCount: 20, avgTC: 60 });
-  const [topEntries, setTopEntries] = useState<typeof SAMPLE_ENTRIES | null>(null);
+  const [stats, setStats] = useState({ entryCount: 0, companyCount: 0, avgTC: 0 });
+  const [topEntries, setTopEntries] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch('/api/companies?pageSize=6&sortBy=entryCount')
@@ -54,11 +48,12 @@ export default function HomePage() {
           })));
           setStats(s => ({ ...s, entryCount: d.meta?.total ?? s.entryCount }));
         }
-      }).catch(() => {});
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const displayEntries = topEntries ?? SAMPLE_ENTRIES;
-  const isSample = !topEntries;
+
 
   return (
     <div className="relative overflow-hidden">
@@ -113,35 +108,42 @@ export default function HomePage() {
             </Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayEntries.map((entry, i) => (
-              <Link key={i} href={`/companies/${entry.slug ?? '#'}`}>
-                <div className={`glass-card p-4 hover:border-violet-500/30 transition-all duration-200 group ${isSample ? 'opacity-70' : ''}`}>
-                  {isSample && <div className="absolute top-2 right-2 text-[10px] text-gray-600 bg-gray-800/80 px-2 py-0.5 rounded-full">Sample</div>}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-600/20">
-                        <Building2 className="w-4 h-4 text-violet-400" />
+            {loading ? (
+              Array(6).fill(0).map((_, i) => (
+                <div key={i} className="glass-card p-4 h-32 skeleton rounded-xl"></div>
+              ))
+            ) : topEntries?.length ? (
+              topEntries.map((entry, i) => (
+                <Link key={i} href={`/companies/${entry.slug ?? '#'}`}>
+                  <div className="glass-card p-4 hover:border-violet-500/30 transition-all duration-200 group">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-violet-600/20">
+                          <Building2 className="w-4 h-4 text-violet-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-gray-100 group-hover:text-violet-300 transition-colors">{entry.company_name}</p>
+                          <p className="text-xs text-gray-500">{entry.role}</p>
+                        </div>
                       </div>
+                      <span className="badge badge-purple">{entry.level}</span>
+                    </div>
+                    <div className="flex items-end justify-between">
                       <div>
-                        <p className="text-sm font-semibold text-gray-100 group-hover:text-violet-300 transition-colors">{entry.company_name}</p>
-                        <p className="text-xs text-gray-500">{entry.role}</p>
+                        <p className="text-2xl font-bold gradient-text-gold animated-number">{formatLakhs(entry.totalCompensation)}</p>
+                        <p className="text-xs text-gray-600 mt-0.5">Total Comp</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm text-gray-400">{formatLakhs(entry.baseSalary)} base</p>
+                        <p className="text-xs text-gray-600">{entry.yearsOfExperience}y exp</p>
                       </div>
                     </div>
-                    <span className="badge badge-purple">{entry.level}</span>
                   </div>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-2xl font-bold gradient-text-gold animated-number">{formatLakhs(entry.totalCompensation)}</p>
-                      <p className="text-xs text-gray-600 mt-0.5">Total Comp</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-400">{formatLakhs(entry.baseSalary)} base</p>
-                      <p className="text-xs text-gray-600">{entry.yearsOfExperience}y exp</p>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              ))
+            ) : (
+              <p className="text-gray-500">No salary data available.</p>
+            )}
           </div>
         </div>
       </section>
