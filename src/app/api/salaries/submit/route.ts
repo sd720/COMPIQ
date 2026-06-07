@@ -27,8 +27,8 @@ export async function POST(req: NextRequest) {
       // Auto-create company if not found
       const slug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
       const newCompany = await sql`
-        INSERT INTO companies (id, name, "normalizedName", slug, "createdAt", "updatedAt")
-        VALUES (gen_random_uuid(), ${companyName}, ${companyName.toLowerCase()}, ${slug}, NOW(), NOW())
+        INSERT INTO companies (id, name, "normalizedName", slug, industry, "hqLocation", "createdAt", "updatedAt")
+        VALUES (gen_random_uuid(), ${companyName}, ${companyName.toLowerCase()}, ${slug}, 'Technology', 'Unknown', NOW(), NOW())
         ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
         RETURNING id
       `;

@@ -4,8 +4,8 @@ import { getDb } from '@/lib/db';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const slugs = searchParams.getAll('slugs[]').length > 0
-      ? searchParams.getAll('slugs[]')
+    const slugs = searchParams.getAll('slugs').length > 0
+      ? searchParams.getAll('slugs')
       : (searchParams.get('slugs') ?? '').split(',').filter(Boolean);
 
     if (!slugs.length) return NextResponse.json({ error: 'No company slugs provided' }, { status: 400 });
