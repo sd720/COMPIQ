@@ -3,12 +3,11 @@
 > **Track C · Full Stack Engineer** — Internship Demo Submission
 
 ## Live Demo
-
-[Your Vercel URL here after deployment]
+https://compiq-lelk-1dg2cam6b-srujandinesh818-9984s-projects.vercel.app/
 
 ## GitHub Repository
 
-[Your GitHub URL here]
+https://github.com/sd720/COMPIQ
 
 ---
 
