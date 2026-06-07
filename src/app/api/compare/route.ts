@@ -24,6 +24,9 @@ export async function GET(req: NextRequest) {
 
       const overall = await sql`SELECT COUNT(*) as count, AVG("totalCompensation") as avg_tc,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "totalCompensation") as median_tc,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "baseSalary") as median_base,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY bonus) as median_bonus,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY equity) as median_equity,
         MAX("totalCompensation") as max_tc
         FROM salary_entries WHERE "companyId" = ${company.id}`;
 
@@ -34,6 +37,9 @@ export async function GET(req: NextRequest) {
           avgTC: Math.round(Number(overall[0].avg_tc || 0) * 10) / 10,
           medianTC: Math.round(Number(overall[0].median_tc || 0) * 10) / 10,
           maxTC: Math.round(Number(overall[0].max_tc || 0) * 10) / 10,
+          medianBase: Math.round(Number(overall[0].median_base || 0) * 10) / 10,
+          medianBonus: Math.round(Number(overall[0].median_bonus || 0) * 10) / 10,
+          medianEquity: Math.round(Number(overall[0].median_equity || 0) * 10) / 10,
         },
         levels: levelStats.map((l: Record<string, unknown>) => ({
           level: l.level, levelOrder: Number(l.levelorder ?? l.levelOrder),

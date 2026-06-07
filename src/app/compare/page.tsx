@@ -13,7 +13,7 @@ interface CompareResult {
     count: number; medianTC: number; avgTC: number; maxTC: number;
     medianBase: number; medianBonus: number; medianEquity: number;
   } | null;
-  levelBreakdown: { level: string; medianTC: number; count: number; levelOrder: number }[];
+  levels: { level: string; avgTC?: number; maxTC?: number; medianTC?: number; count: number; levelOrder: number }[];
 }
 
 const COLORS = ['#8b5cf6', '#22d3ee', '#f59e0b'];
@@ -82,12 +82,12 @@ export default function ComparePage() {
   // Build chart data from level breakdowns
   const levelChartData = (() => {
     const levelSet = new Set<string>();
-    results.forEach(r => r.levelBreakdown.forEach(l => levelSet.add(l.level)));
+    results.forEach(r => r.levels?.forEach(l => levelSet.add(l.level)));
     return Array.from(levelSet).map(level => {
       const row: Record<string, string | number> = { level };
       results.forEach(r => {
-        const found = r.levelBreakdown.find(l => l.level === level);
-        row[r.company.name] = found?.medianTC ?? 0;
+        const found = r.levels?.find(l => l.level === level);
+        row[r.company.name] = found?.avgTC ?? found?.medianTC ?? 0;
       });
       return row;
     });

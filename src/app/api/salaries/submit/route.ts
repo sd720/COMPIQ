@@ -69,10 +69,10 @@ export async function POST(req: NextRequest) {
         city, location, "employmentType", verified, anonymous, education, "submittedAt"
       ) VALUES (
         gen_random_uuid(), ${companyId}, ${role},
-        ${roleCategory ?? 'SOFTWARE_ENGINEERING'}, ${level}, ${levelOrder},
+        ${roleCategory || 'SOFTWARE_ENGINEERING'}::"RoleCategory", ${level}, ${levelOrder},
         ${Number(yearsOfExperience) || 0}, ${safeBase}, ${safeBonus}, ${safeEquity},
         ${totalCompensation}, ${dbCity}::"City", ${cityLabel},
-        ${employmentType ?? 'FULL_TIME'}, false,
+        ${employmentType || 'FULL_TIME'}::"EmploymentType", false,
         ${anonymous !== false}, ${education ?? null}, NOW()
       )
     `;
